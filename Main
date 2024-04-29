@@ -1,0 +1,68 @@
+#include <WiFi.h>
+#include <WiFiUdp.h>
+
+// WiFi network credentials
+const char* ssid = "your_network_ssid";
+const char* password = "your_network_password";
+
+// Define pins connected to buttons
+const int smallCoffeeButtonPin = 5;  // Example pin for small coffee button
+const int bigCoffeeButtonPin = 6;    // Example pin for big coffee button
+
+// UDP setup
+WiFiUDP udp;
+const unsigned int localUdpPort = 8888;
+
+void setup() {
+  // Initialize serial communication
+  Serial.begin(9600);
+
+  // Initialize WiFi connection
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.println("Connecting to WiFi...");
+  }
+  Serial.println("WiFi connected");
+
+  // Initialize UDP server
+  udp.begin(localUdpPort);
+  Serial.printf("UDP server started on port %d\n", localUdpPort);
+
+  // Set pins as inputs
+  pinMode(smallCoffeeButtonPin, OUTPUT);
+  pinMode(bigCoffeeButtonPin, OUTPUT);
+}
+
+void loop() {
+  // Check for UDP messages
+  int packetSize = udp.parsePacket();
+  if (packetSize) {
+    // Allocate buffer to store incoming packet
+    char packetBuffer[packetSize];
+    
+    // Read packet into buffer
+    udp.read(packetBuffer, packetSize);
+    
+    // Print incoming packet
+    Serial.printf("Received UDP packet: %s\n", packetBuffer);
+    
+    // Check content of UDP message and activate corresponding button
+    if (strcmp(packetBuffer, "small coffee") == 0) {
+      // Activate small coffee button pin
+      digitalWrite(smallCoffeeButtonPin, HIGH);
+      delay(100); // Press button for a short duration
+      digitalWrite(smallCoffeeButtonPin, LOW);
+      Serial.println("Small coffee button pressed");
+    } else if (strcmp(packetBuffer, "big coffee") == 0) {
+      // Activate big coffee button pin
+      digitalWrite(bigCoffeeButtonPin, HIGH);
+      delay(100); // Press button for a short duration
+      digitalWrite(bigCoffeeButtonPin, LOW);
+      Serial.println("Big coffee button pressed");
+    }
+  }
+  
+  // Add a small delay to avoid overwhelming the WiFi module
+  delay(10);
+}
