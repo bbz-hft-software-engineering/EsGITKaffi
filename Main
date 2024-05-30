@@ -1,68 +1,229 @@
-#include <WiFi.h>
-#include <WiFiUdp.h>
+/*----------------------------------------------------------------------------------------------
+  Remote controlled Coffeemachine - Projekt "EsGITKaffi"
+  GithubURL: https://github.com/bbz-hft-software-engineering/EsGITKaffi
+  
+  Please enter your sensitive data in the Secret tab/arduino_secrets.h 
+ -----------------------------------------------------------------------------------------------*/
+/*--------------------LIBRARIES--------------------*/
+#include "WiFiS3.h"
 
-// WiFi network credentials
-const char* ssid = "your_network_ssid";
-const char* password = "your_network_password";
+/*--------------------CREDENTIALS & PORTS--------------------*/
+const char* ssid = "SSID NAME";
+const char* pass = "PASSWORT";
+WiFiServer server(80);
 
-// Define pins connected to buttons
-const int smallCoffeeButtonPin = 5;  // Example pin for small coffee button
-const int bigCoffeeButtonPin = 6;    // Example pin for big coffee button
+/*--------------------DEFINES-------------------*/
+#define BUTTONDELAY 100
 
-// UDP setup
-WiFiUDP udp;
-const unsigned int localUdpPort = 8888;
+/*--------------------ENUMS--------------------*/
+enum DrinkType { TEA, ESPRESSO, LUNGO, NUM_DRINKS };
 
-void setup() {
-  // Initialize serial communication
-  Serial.begin(9600);
+/*--------------------Arduino PIN Layout--------------------*/
+const int cmdPins[NUM_DRINKS] = { D2, D4, D7 };
+const int buttonPins[NUM_DRINKS] = { A0, A2, A4 };
 
-  // Initialize WiFi connection
-  WiFi.begin(ssid, password);
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(500);
-    Serial.println("Connecting to WiFi...");
-  }
-  Serial.println("WiFi connected");
+/*--------------------VARIABLES--------------------*/
+int cmdCounters[NUM_DRINKS] = { 0, 0, 0 };
+char states[NUM_DRINKS][50];
+const char* stateColors[NUM_DRINKS] = { "blue", "black", "brown" };
+int status = WL_IDLE_STATUS;
 
-  // Initialize UDP server
-  udp.begin(localUdpPort);
-  Serial.printf("UDP server started on port %d\n", localUdpPort);
+/*--------------------FUNCTION DECLARATIONS--------------------*/
+void runAllTests();
+void setup();
+void loop();
+void printWifiStatus();
+void getButtonState();
+void updateCounter(int &counter, int pin);
+void checkClientRequest(const String &currentLine);
+void sendHttpResponse(WiFiClient &client);
+void webPageContent(WiFiClient &client);
+void setPinModes();
+void updateState(int buttonValue, char* state, const char* color);
 
-  // Set pins as inputs
-  pinMode(smallCoffeeButtonPin, OUTPUT);
-  pinMode(bigCoffeeButtonPin, OUTPUT);
+/*--------------------UNIT TEST DECLARATIONS--------------------*/
+void testServerResponse();
+
+/*--------------------UNIT TEST EXECUTION--------------------*/
+void runAllTests()
+{
+  testServerResponse();
 }
 
-void loop() {
-  // Check for UDP messages
-  int packetSize = udp.parsePacket();
-  if (packetSize) {
-    // Allocate buffer to store incoming packet
-    char packetBuffer[packetSize];
-    
-    // Read packet into buffer
-    udp.read(packetBuffer, packetSize);
-    
-    // Print incoming packet
-    Serial.printf("Received UDP packet: %s\n", packetBuffer);
-    
-    // Check content of UDP message and activate corresponding button
-    if (strcmp(packetBuffer, "small coffee") == 0) {
-      // Activate small coffee button pin
-      digitalWrite(smallCoffeeButtonPin, HIGH);
-      delay(100); // Press button for a short duration
-      digitalWrite(smallCoffeeButtonPin, LOW);
-      Serial.println("Small coffee button pressed");
-    } else if (strcmp(packetBuffer, "big coffee") == 0) {
-      // Activate big coffee button pin
-      digitalWrite(bigCoffeeButtonPin, HIGH);
-      delay(100); // Press button for a short duration
-      digitalWrite(bigCoffeeButtonPin, LOW);
-      Serial.println("Big coffee button pressed");
-    }
+/*--------------------INITIALIZING & SETUP--------------------*/
+void setup() {
+  Serial.begin(115200);
+  
+  setPinModes();
+
+  // Initialize states
+  for (int i = 0; i < NUM_DRINKS; i++) {
+    sprintf(states[i], "<font color=\"%s\">OFF</font>", stateColors[i]);
+  }
+
+  // Check for WiFi module
+  if (WiFi.status() == WL_NO_MODULE) {
+    Serial.println("Error: Communication with WiFi module failed!");
+    while (true);
+  }
+
+  // Attempt to connect to WiFi network
+  while (status != WL_CONNECTED) {
+    Serial.print("Attempting to connect to Network named: ");
+    Serial.println(ssid);
+    status = WiFi.begin(ssid, pass);
+    delay(10000); // wait 10 seconds for connection
   }
   
-  // Add a small delay to avoid overwhelming the WiFi module
-  delay(10);
+  // Start the server
+  server.begin();
+  printWifiStatus();
+}
+
+/*--------------------MAIN & STATE MACHINE--------------------*/
+void loop() {
+  WiFiClient client = server.available();
+
+  if (client) {
+    String currentLine = "";
+    while (client.connected()) {
+      if (client.available()) {
+        char c = client.read();
+        if (c == '\n') {
+          if (currentLine.length() == 0) {
+            sendHttpResponse(client);
+            getButtonState();
+            webPageContent(client);
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') {
+          currentLine += c;
+        }
+        checkClientRequest(currentLine);
+      }
+    }
+    client.stop();
+  }
+  
+  for (int i = 0; i < NUM_DRINKS; i++) {
+    updateCounter(cmdCounters[i], cmdPins[i]);
+  }
+}
+
+/*--------------------HELPER FUNCTIONS--------------------*/
+void setPinModes() {
+  for (int i = 0; i < NUM_DRINKS; i++) {
+    pinMode(cmdPins[i], OUTPUT);
+    pinMode(buttonPins[i], INPUT_PULLUP);
+  }
+}
+
+void printWifiStatus() {
+  Serial.print("Connected to SSID: ");
+  Serial.println(WiFi.SSID());
+
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+
+  long rssi = WiFi.RSSI();
+  Serial.print("Signal strength (RSSI): ");
+  Serial.print(rssi);
+  Serial.println(" dBm");
+  
+  Serial.print("Open a browser to http://");
+  Serial.println(ip);
+}
+
+void updateState(int buttonValue, char* state, const char* color) {
+  if (buttonValue < 300) {
+    sprintf(state, "<font color=\"%s\">OFF</font>", color);
+  } else {
+    sprintf(state, "<font color=\"%s\">bereit</font>", color);
+  }
+}
+
+void getButtonState() {
+  for (int i = 0; i < NUM_DRINKS; i++) {
+    int buttonValue = analogRead(buttonPins[i]);
+    updateState(buttonValue, states[i], stateColors[i]);
+  }
+}
+
+void updateCounter(int &counter, int pin) {
+  if (counter > 0) {
+    if (--counter == 0) {
+      digitalWrite(pin, LOW);
+    }
+  }
+}
+
+void checkClientRequest(const String &currentLine) {
+  if (currentLine.endsWith("GET /TeaOn")) {
+    digitalWrite(cmdPins[TEA], HIGH);
+    cmdCounters[TEA] = BUTTONDELAY;
+  } else if (currentLine.endsWith("GET /EspressoOn")) {
+    digitalWrite(cmdPins[ESPRESSO], HIGH);
+    cmdCounters[ESPRESSO] = BUTTONDELAY;
+  } else if (currentLine.endsWith("GET /LungoOn")) {
+    digitalWrite(cmdPins[LUNGO], HIGH);
+    cmdCounters[LUNGO] = BUTTONDELAY;
+  }
+}
+
+void sendHttpResponse(WiFiClient &client) {
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println();
+}
+
+void webPageContent(WiFiClient &client) {
+  String htmlContent = "<!DOCTYPE html><html lang=\"en\">";
+  htmlContent += "<head>";
+  htmlContent += "<meta charset=\"UTF-8\">";
+  htmlContent += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+  htmlContent += "<meta http-equiv=\"refresh\" content=\"2; /\">";
+  htmlContent += "<style>";
+  htmlContent += "body { font-family: Arial, sans-serif; background-color: #f4f4f9; color: #333; text-align: center; padding: 50px; }";
+  htmlContent += "h1 { color: #4CAF50; }";
+  htmlContent += "a { text-decoration: none; color: #333; padding: 10px 20px; border: 2px solid #4CAF50; border-radius: 10px; transition: background-color 0.3s, color 0.3s; }";
+  htmlContent += "a:hover { background-color: #4CAF50; color: white; }";
+  htmlContent += "p { margin: 40px 0; }";
+  htmlContent += "</style>";
+  htmlContent += "</head>";
+  htmlContent += "<body>";
+  htmlContent += "<h1>Online Kaffehaus</h1>";
+  htmlContent += "<p>Was möchtest du?</p>";
+  htmlContent += "<p><b><a href=\"/TeaOn\">Tea</a> " + String(states[TEA]) + "</b></p>";
+  htmlContent += "<p><b><a href=\"/EspressoOn\">Espresso</a> " + String(states[ESPRESSO]) + "</b></p>";
+  htmlContent += "<p><b><a href=\"/LungoOn\">Lungo</a> " + String(states[LUNGO]) + "</b></p>";
+  htmlContent += "</body>";
+  htmlContent += "</html>";
+
+  client.print(htmlContent);
+  client.println();
+}
+
+/*--------------------UNIT TEST--------------------*/
+void testServerResponse() {
+  Serial.print("Running testServerResponse...");
+  bool testPassed = true;
+
+  WiFiClient client = server.available();
+  if (client) {
+    client.println("HTTP/1.1 200 OK");
+    client.println("Content-type:text/html");
+    client.println();
+    client.println("<!DOCTYPE html><html><body><h1>Test Response</h1></body></html>");
+    client.println();
+
+    client.stop();
+  } else {
+    Serial.print("No client connected.");
+    testPassed = false;
+  }
+
+  Serial.print(testPassed ? "testServerResponse: PASSED" : "testServerResponse: FAILED");
 }
