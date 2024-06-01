@@ -1,2 +1,3 @@
 # EsGITKaffi
-HFT_Projektarbeit_2024_YAN
+Dieses Projekt soll die Steuerung einer Standard-Kaffeemaschine über eine vom Mikrocontroller Arduino UNO R4 Wifi erstellte Weboberfläche ermöglichen. Ziel des Projekts ist es, eine benutzerfreundliche Möglichkeit zu schaffen, eine Kaffeemaschine remote zu bedienen. Ein Mikrocontroller agiert als zentrale Steuereinheit, die mit der Kaffeemaschine verbunden ist und über eine Weboberfläche verschiedene Bedienungsfunktionen bereitstellt. Diese Weboberfläche kann von jedem Gerät mit Internetzugang aufgerufen werden kann.
+[Wiki](https://github.com/bbz-hft-software-engineering/EsGITKaffi/wiki)
