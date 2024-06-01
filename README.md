@@ -1,5 +1,5 @@
 # EsGITKaffi
-![Dokumentation im Wiki](https://github.com/bbz-hft-software-engineering/EsGITKaffi/wiki)
+[Dokumentation im Wiki](https://github.com/bbz-hft-software-engineering/EsGITKaffi/wiki)
 
 ## Troubleshooting
 
@@ -12,4 +12,4 @@
 Beiträge sind willkommen! Bitte forken Sie das Repository und erstellen Sie eine Pull-Request mit Ihren Änderungen.
 
 ## Lizenz
-Dieses Projekt ist unter der MIT-Lizenz lizenziert. Siehe die LICENSE Datei für Details.
+Dieses Projekt ist unter der MIT-Lizenz lizenziert. Siehe die [LIZENS](LICENSE) Datei für Details.
