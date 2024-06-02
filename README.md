@@ -5,6 +5,7 @@
 
 - Überprüfe deine Wi-Fi Einstellungen
 - Überprüfe den Serial Output für Debugging Informationen mit dem [Serial Monitor der Arduino IDE](https://docs.arduino.cc/software/ide-v2/tutorials/ide-v2-serial-monitor) oder [PuTTY](https://putty.org/)
+- Überprüfe die Ergebnisse der Unit Test ähnlichen Funktionen, welche im Code integriert sind
 - Überprüfe die IP-Adresse des Aurduinos und die [static / dynamic IP-Adresseinstellungen](https://whatismyipaddress.com/dynamic-static)
 
 
