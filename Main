@@ -4,12 +4,11 @@
   
   Please enter your sensitive data in the Secret tab/arduino_secrets.h 
  -----------------------------------------------------------------------------------------------*/
-
 /*--------------------LIBRARIES--------------------*/
 #include "WiFiS3.h"
 
 /*--------------------CREDENTIALS & PORTS--------------------*/
-const char* ssid = "SSID NAME";
+const char* ssid = "SSID";
 const char* pass = "PASSWORT";
 WiFiServer server(80);
 
@@ -21,7 +20,7 @@ enum DrinkType { TEA, ESPRESSO, LUNGO, NUM_DRINKS };
 
 /*--------------------Arduino PIN Layout--------------------*/
 const int cmdPins[NUM_DRINKS] = { D2, D4, D7 };
-const int buttonPins[NUM_DRINKS] = { A0, A2, A4 };
+const int statePins[NUM_DRINKS] = { A0, A2, A4 };
 
 /*--------------------VARIABLES--------------------*/
 int cmdCounters[NUM_DRINKS] = { 0, 0, 0 };
@@ -30,26 +29,21 @@ const char* stateColors[NUM_DRINKS] = { "blue", "black", "brown" };
 int status = WL_IDLE_STATUS;
 
 /*--------------------FUNCTION DECLARATIONS--------------------*/
-void runAllTests();
-void setup();
-void loop();
-void printWifiStatus();
-void getButtonState();
-void updateCounter(int &counter, int pin);
-void checkClientRequest(const String &currentLine);
-void sendHttpResponse(WiFiClient &client);
-void webPageContent(WiFiClient &client);
-void setPinModes();
-void updateState(int buttonValue, char* state, const char* color);
+void setPinModes(); // definition der PINS
+void setup(); // Standard Arduino Setup Funktion
+void loop();  // Standard Arduino loop Funktion
+void printWifiStatus(); // Annzeige von generellen Wifi-Einstellungen via Serial Port
+void getButtonState();  // Auslesen von OUTPUT der Kaffeemaschine
+void updateCounter(int &counter, int pin); // Timerfunktion für die Signaldauer der Relais
+void checkClientRequest(const String &currentLine); // Auslesen von Webeingabe
+void sendHttpResponse(WiFiClient &client); // Anzeige der Webseite
+void webPageContent(WiFiClient &client); // HTML-repräsentation der Webseite
+void updateState(int buttonValue, char* state, const char* color); // Visualisierung der LED-Stati
 
 /*--------------------UNIT TEST DECLARATIONS--------------------*/
-void testServerResponse();
-
-/*--------------------UNIT TEST EXECUTION--------------------*/
-void runAllTests()
-{
-  testServerResponse();
-}
+void runAllTests(); // UNitTest-Funktion
+bool testUpdateState(); //Überprüfung der updateState()-Funktion
+bool testUpdateCounter(); //Überprüfung der updateCounter()-Funktion
 
 /*--------------------INITIALIZING & SETUP--------------------*/
 void setup() {
@@ -57,41 +51,45 @@ void setup() {
   
   setPinModes();
 
-  // Initialize states
-  for (int i = 0; i < NUM_DRINKS; i++) {
+  for (int i = 0; i < NUM_DRINKS; i++) 
+  {
     sprintf(states[i], "<font color=\"%s\">OFF</font>", stateColors[i]);
   }
 
-  // Check for WiFi module
-  if (WiFi.status() == WL_NO_MODULE) {
+  if (WiFi.status() == WL_NO_MODULE) 
+  {
     Serial.println("Error: Communication with WiFi module failed!");
     while (true);
   }
 
-  // Attempt to connect to WiFi network
-  while (status != WL_CONNECTED) {
+  while (status != WL_CONNECTED) 
+  {
     Serial.print("Attempting to connect to Network named: ");
     Serial.println(ssid);
     status = WiFi.begin(ssid, pass);
-    delay(10000); // wait 10 seconds for connection
+    delay(10000);
   }
   
-  // Start the server
   server.begin();
-  printWifiStatus();
+
+  runAllTests();
 }
 
 /*--------------------MAIN & STATE MACHINE--------------------*/
-void loop() {
+void loop() 
+{
   WiFiClient client = server.available();
 
   if (client) {
     String currentLine = "";
-    while (client.connected()) {
-      if (client.available()) {
+    while (client.connected()) 
+    {
+      if (client.available()) 
+      {
         char c = client.read();
         if (c == '\n') {
-          if (currentLine.length() == 0) {
+          if (currentLine.length() == 0) 
+          {
             sendHttpResponse(client);
             getButtonState();
             webPageContent(client);
@@ -99,7 +97,8 @@ void loop() {
           } else {
             currentLine = "";
           }
-        } else if (c != '\r') {
+        } else if (c != '\r') 
+        {
           currentLine += c;
         }
         checkClientRequest(currentLine);
@@ -108,20 +107,25 @@ void loop() {
     client.stop();
   }
   
-  for (int i = 0; i < NUM_DRINKS; i++) {
+  for (int i = 0; i < NUM_DRINKS; i++)
+  {
     updateCounter(cmdCounters[i], cmdPins[i]);
   }
 }
 
 /*--------------------HELPER FUNCTIONS--------------------*/
-void setPinModes() {
-  for (int i = 0; i < NUM_DRINKS; i++) {
+void setPinModes()
+{
+  for (int i = 0; i < NUM_DRINKS; i++)
+  {
     pinMode(cmdPins[i], OUTPUT);
-    pinMode(buttonPins[i], INPUT_PULLUP);
+    pinMode(statePins[i], INPUT_PULLUP);
   }
+  pinMode(D13, OUTPUT); // benötigt in Unittest
 }
 
-void printWifiStatus() {
+void printWifiStatus()
+{
   Serial.print("Connected to SSID: ");
   Serial.println(WiFi.SSID());
 
@@ -138,49 +142,68 @@ void printWifiStatus() {
   Serial.println(ip);
 }
 
-void updateState(int buttonValue, char* state, const char* color) {
-  if (buttonValue < 300) {
+void updateState(int buttonValue, char* state, const char* color)
+{
+  if (buttonValue < 300) // Grenzewert für die Erkennung des LED Status
+  {
     sprintf(state, "<font color=\"%s\">OFF</font>", color);
-  } else {
+  }
+  else
+  {
     sprintf(state, "<font color=\"%s\">bereit</font>", color);
   }
 }
 
-void getButtonState() {
-  for (int i = 0; i < NUM_DRINKS; i++) {
-    int buttonValue = analogRead(buttonPins[i]);
+void getButtonState()
+{
+  for (int i = 0; i < NUM_DRINKS; i++)
+  {
+    int buttonValue = analogRead(statePins[i]);
     updateState(buttonValue, states[i], stateColors[i]);
   }
 }
 
-void updateCounter(int &counter, int pin) {
-  if (counter > 0) {
-    if (--counter == 0) {
+void updateCounter(int &counter, int pin)
+{
+  if (counter > 0)
+  {
+    if (--counter == 0)
+    {
       digitalWrite(pin, LOW);
     }
   }
 }
 
-void checkClientRequest(const String &currentLine) {
-  if (currentLine.endsWith("GET /TeaOn")) {
+void checkClientRequest(const String &currentLine)
+{
+  if (currentLine.endsWith("GET /TeaOn"))
+  {
     digitalWrite(cmdPins[TEA], HIGH);
     cmdCounters[TEA] = BUTTONDELAY;
-  } else if (currentLine.endsWith("GET /EspressoOn")) {
+  } else if (currentLine.endsWith("GET /EspressoOn"))
+  {
     digitalWrite(cmdPins[ESPRESSO], HIGH);
     cmdCounters[ESPRESSO] = BUTTONDELAY;
-  } else if (currentLine.endsWith("GET /LungoOn")) {
+  } else if (currentLine.endsWith("GET /LungoOn"))
+  {
     digitalWrite(cmdPins[LUNGO], HIGH);
     cmdCounters[LUNGO] = BUTTONDELAY;
   }
+  else if (currentLine.endsWith("GET /Test"))
+ {
+    runAllTests();
+  }
 }
 
-void sendHttpResponse(WiFiClient &client) {
+void sendHttpResponse(WiFiClient &client)
+{
   client.println("HTTP/1.1 200 OK");
   client.println("Content-type:text/html");
   client.println();
 }
 
-void webPageContent(WiFiClient &client) {
+void webPageContent(WiFiClient &client)
+{
   String htmlContent = "<!DOCTYPE html><html lang=\"en\">";
   htmlContent += "<head>";
   htmlContent += "<meta charset=\"UTF-8\">";
@@ -195,7 +218,7 @@ void webPageContent(WiFiClient &client) {
   htmlContent += "</style>";
   htmlContent += "</head>";
   htmlContent += "<body>";
-  htmlContent += "<h1>Online Kaffehaus</h1>";
+  htmlContent += "<h1>Online Kaffeehaus</h1>";
   htmlContent += "<p>Was möchtest du?</p>";
   htmlContent += "<p><b><a href=\"/TeaOn\">Tea</a> " + String(states[TEA]) + "</b></p>";
   htmlContent += "<p><b><a href=\"/EspressoOn\">Espresso</a> " + String(states[ESPRESSO]) + "</b></p>";
@@ -207,27 +230,68 @@ void webPageContent(WiFiClient &client) {
   client.println();
 }
 
-/*--------------------UNIT TEST--------------------*/
-void testServerResponse() {
-  Serial.print("Running testServerResponse...");
-  bool testPassed = true;
+/*--------------------UNIT TEST EXECUTION--------------------*/
+void runAllTests()
+{
+  bool testPassed=true;
+  printWifiStatus();
+  Serial.println("Running runAllTests:");
 
-  WiFiClient client = server.available();
-  if (client) {
-    client.println("HTTP/1.1 200 OK");
-    client.println("Content-type:text/html");
-    client.println();
-    client.println("<!DOCTYPE html><html><body><h1>Test Response</h1></body></html>");
-    client.println();
+  testPassed &= testUpdateState();
+  testPassed &= testUpdateCounter();
 
-    client.stop();
-  } else {
-    Serial.print("No client connected.");
-    testPassed = false;
-  }
-
-  Serial.print(testPassed ? "testServerResponse: PASSED" : "testServerResponse: FAILED");
+  Serial.println(testPassed ? "runAllTests: PASSED" : "runAllTests: FAILED");
 }
+
+/*--------------------UNIT TEST--------------------*/
+bool testUpdateState()
+{
+  Serial.print("Running testUpdateState...");
+  char testState[100];
+
+  updateState(0, testState, "COL1");
+  bool testPassed = ( 0 == strcmp( testState, "<font color=\"COL1\">OFF</font>"));
+  updateState(299, testState, "COL2");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL2\">OFF</font>"));
+  updateState(301, testState, "COL3");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL3\">bereit</font>"));
+  updateState(1024, testState, "COL4");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL4\">bereit</font>"));
+  updateState(-1, testState, "COL5");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL5\">OFF</font>"));
+
+  Serial.println(testPassed ? "PASSED" : "FAILED");
+  return testPassed;
+}
+
+bool testUpdateCounter()
+{
+  Serial.print("Running testUpdateCounter...");
+
+  int testCounter[]={ -100, 0, 1, 100};
+  digitalWrite(D13, HIGH);
+  
+  updateCounter(testCounter[0], D13);
+  bool testPassed = ( -100 == testCounter[0] ) && (HIGH == digitalRead(D13));
+
+  digitalWrite(D13, HIGH);
+  updateCounter(testCounter[1], D13);
+  testPassed &= ( 0 == testCounter[1] ) && (HIGH == digitalRead(D13));
+
+  digitalWrite(D13, HIGH);
+  updateCounter(testCounter[2], D13);
+  testPassed &= ( 0 == testCounter[2] ) && (LOW == digitalRead(D13));
+
+  digitalWrite(D13, HIGH);
+  updateCounter(testCounter[3], D13);
+  testPassed &= ( 99 == testCounter[3] ) && (HIGH == digitalRead(D13));
+
+  Serial.println(testPassed ? "PASSED" : "FAILED");
+  digitalWrite(D13, LOW);
+
+  return testPassed;
+}
+
 
 /*--------------------LICENSE--------------------
 Copyright (c) 2024 Yves Ackermann
@@ -250,7 +314,3 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ------------------------------------------------------------*/
-
-
-
-
