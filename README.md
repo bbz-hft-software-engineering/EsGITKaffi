@@ -12,4 +12,4 @@
 Beiträge sind willkommen! Bitte forken Sie das Repository und erstellen Sie eine Pull-Request mit Ihren Änderungen.
 
 ## Lizenz
-Dieses Projekt ist unter der MIT-Lizenz lizenziert. Siehe die [LIZENS](LICENSE) Datei für Details.
+Dieses Projekt ist unter der MIT-Lizenz lizenziert. Siehe die [LIZENZ](LICENSE) Datei für Details.
