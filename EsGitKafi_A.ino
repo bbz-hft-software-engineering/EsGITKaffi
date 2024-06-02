@@ -1,0 +1,316 @@
+/*----------------------------------------------------------------------------------------------
+  Remote controlled Coffeemachine - Projekt "EsGITKaffi"
+  GithubURL: https://github.com/bbz-hft-software-engineering/EsGITKaffi
+  
+  Please enter your sensitive data in the Secret tab/arduino_secrets.h 
+ -----------------------------------------------------------------------------------------------*/
+/*--------------------LIBRARIES--------------------*/
+#include "WiFiS3.h"
+
+/*--------------------CREDENTIALS & PORTS--------------------*/
+const char* ssid = "SSID";
+const char* pass = "PASSWORT";
+WiFiServer server(80);
+
+/*--------------------DEFINES-------------------*/
+#define BUTTONDELAY 100
+
+/*--------------------ENUMS--------------------*/
+enum DrinkType { TEA, ESPRESSO, LUNGO, NUM_DRINKS };
+
+/*--------------------Arduino PIN Layout--------------------*/
+const int cmdPins[NUM_DRINKS] = { D2, D4, D7 };
+const int statePins[NUM_DRINKS] = { A0, A2, A4 };
+
+/*--------------------VARIABLES--------------------*/
+int cmdCounters[NUM_DRINKS] = { 0, 0, 0 };
+char states[NUM_DRINKS][50];
+const char* stateColors[NUM_DRINKS] = { "blue", "black", "brown" };
+int status = WL_IDLE_STATUS;
+
+/*--------------------FUNCTION DECLARATIONS--------------------*/
+void setPinModes(); // definition der PINS
+void setup(); // Standard Arduino Setup Funktion
+void loop();  // Standard Arduino loop Funktion
+void printWifiStatus(); // Annzeige von generellen Wifi-Einstellungen via Serial Port
+void getButtonState();  // Auslesen von OUTPUT der Kaffeemaschine
+void updateCounter(int &counter, int pin); // Timerfunktion für die Signaldauer der Relais
+void checkClientRequest(const String &currentLine); // Auslesen von Webeingabe
+void sendHttpResponse(WiFiClient &client); // Anzeige der Webseite
+void webPageContent(WiFiClient &client); // HTML-repräsentation der Webseite
+void updateState(int buttonValue, char* state, const char* color); // Visualisierung der LED-Stati
+
+/*--------------------UNIT TEST DECLARATIONS--------------------*/
+void runAllTests(); // UNitTest-Funktion
+bool testUpdateState(); //Überprüfung der updateState()-Funktion
+bool testUpdateCounter(); //Überprüfung der updateCounter()-Funktion
+
+/*--------------------INITIALIZING & SETUP--------------------*/
+void setup() {
+  Serial.begin(115200);
+  
+  setPinModes();
+
+  for (int i = 0; i < NUM_DRINKS; i++) 
+  {
+    sprintf(states[i], "<font color=\"%s\">OFF</font>", stateColors[i]);
+  }
+
+  if (WiFi.status() == WL_NO_MODULE) 
+  {
+    Serial.println("Error: Communication with WiFi module failed!");
+    while (true);
+  }
+
+  while (status != WL_CONNECTED) 
+  {
+    Serial.print("Attempting to connect to Network named: ");
+    Serial.println(ssid);
+    status = WiFi.begin(ssid, pass);
+    delay(10000);
+  }
+  
+  server.begin();
+
+  runAllTests();
+}
+
+/*--------------------MAIN & STATE MACHINE--------------------*/
+void loop() 
+{
+  WiFiClient client = server.available();
+
+  if (client) {
+    String currentLine = "";
+    while (client.connected()) 
+    {
+      if (client.available()) 
+      {
+        char c = client.read();
+        if (c == '\n') {
+          if (currentLine.length() == 0) 
+          {
+            sendHttpResponse(client);
+            getButtonState();
+            webPageContent(client);
+            break;
+          } else {
+            currentLine = "";
+          }
+        } else if (c != '\r') 
+        {
+          currentLine += c;
+        }
+        checkClientRequest(currentLine);
+      }
+    }
+    client.stop();
+  }
+  
+  for (int i = 0; i < NUM_DRINKS; i++)
+  {
+    updateCounter(cmdCounters[i], cmdPins[i]);
+  }
+}
+
+/*--------------------HELPER FUNCTIONS--------------------*/
+void setPinModes()
+{
+  for (int i = 0; i < NUM_DRINKS; i++)
+  {
+    pinMode(cmdPins[i], OUTPUT);
+    pinMode(statePins[i], INPUT_PULLUP);
+  }
+  pinMode(D13, OUTPUT); // benötigt in Unittest
+}
+
+void printWifiStatus()
+{
+  Serial.print("Connected to SSID: ");
+  Serial.println(WiFi.SSID());
+
+  IPAddress ip = WiFi.localIP();
+  Serial.print("IP Address: ");
+  Serial.println(ip);
+
+  long rssi = WiFi.RSSI();
+  Serial.print("Signal strength (RSSI): ");
+  Serial.print(rssi);
+  Serial.println(" dBm");
+  
+  Serial.print("Open a browser to http://");
+  Serial.println(ip);
+}
+
+void updateState(int buttonValue, char* state, const char* color)
+{
+  if (buttonValue < 300) // Grenzewert für die Erkennung des LED Status
+  {
+    sprintf(state, "<font color=\"%s\">OFF</font>", color);
+  }
+  else
+  {
+    sprintf(state, "<font color=\"%s\">bereit</font>", color);
+  }
+}
+
+void getButtonState()
+{
+  for (int i = 0; i < NUM_DRINKS; i++)
+  {
+    int buttonValue = analogRead(statePins[i]);
+    updateState(buttonValue, states[i], stateColors[i]);
+  }
+}
+
+void updateCounter(int &counter, int pin)
+{
+  if (counter > 0)
+  {
+    if (--counter == 0)
+    {
+      digitalWrite(pin, LOW);
+    }
+  }
+}
+
+void checkClientRequest(const String &currentLine)
+{
+  if (currentLine.endsWith("GET /TeaOn"))
+  {
+    digitalWrite(cmdPins[TEA], HIGH);
+    cmdCounters[TEA] = BUTTONDELAY;
+  } else if (currentLine.endsWith("GET /EspressoOn"))
+  {
+    digitalWrite(cmdPins[ESPRESSO], HIGH);
+    cmdCounters[ESPRESSO] = BUTTONDELAY;
+  } else if (currentLine.endsWith("GET /LungoOn"))
+  {
+    digitalWrite(cmdPins[LUNGO], HIGH);
+    cmdCounters[LUNGO] = BUTTONDELAY;
+  }
+  else if (currentLine.endsWith("GET /Test"))
+ {
+    runAllTests();
+  }
+}
+
+void sendHttpResponse(WiFiClient &client)
+{
+  client.println("HTTP/1.1 200 OK");
+  client.println("Content-type:text/html");
+  client.println();
+}
+
+void webPageContent(WiFiClient &client)
+{
+  String htmlContent = "<!DOCTYPE html><html lang=\"en\">";
+  htmlContent += "<head>";
+  htmlContent += "<meta charset=\"UTF-8\">";
+  htmlContent += "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">";
+  htmlContent += "<meta http-equiv=\"refresh\" content=\"2; /\">";
+  htmlContent += "<style>";
+  htmlContent += "body { font-family: Arial, sans-serif; background-color: #f4f4f9; color: #333; text-align: center; padding: 50px; }";
+  htmlContent += "h1 { color: #4CAF50; }";
+  htmlContent += "a { text-decoration: none; color: #333; padding: 10px 20px; border: 2px solid #4CAF50; border-radius: 10px; transition: background-color 0.3s, color 0.3s; }";
+  htmlContent += "a:hover { background-color: #4CAF50; color: white; }";
+  htmlContent += "p { margin: 40px 0; }";
+  htmlContent += "</style>";
+  htmlContent += "</head>";
+  htmlContent += "<body>";
+  htmlContent += "<h1>Online Kaffeehaus</h1>";
+  htmlContent += "<p>Was möchtest du?</p>";
+  htmlContent += "<p><b><a href=\"/TeaOn\">Tea</a> " + String(states[TEA]) + "</b></p>";
+  htmlContent += "<p><b><a href=\"/EspressoOn\">Espresso</a> " + String(states[ESPRESSO]) + "</b></p>";
+  htmlContent += "<p><b><a href=\"/LungoOn\">Lungo</a> " + String(states[LUNGO]) + "</b></p>";
+  htmlContent += "</body>";
+  htmlContent += "</html>";
+
+  client.print(htmlContent);
+  client.println();
+}
+
+/*--------------------UNIT TEST EXECUTION--------------------*/
+void runAllTests()
+{
+  bool testPassed=true;
+  printWifiStatus();
+  Serial.println("Running runAllTests:");
+
+  testPassed &= testUpdateState();
+  testPassed &= testUpdateCounter();
+
+  Serial.println(testPassed ? "runAllTests: PASSED" : "runAllTests: FAILED");
+}
+
+/*--------------------UNIT TEST--------------------*/
+bool testUpdateState()
+{
+  Serial.print("Running testUpdateState...");
+  char testState[100];
+
+  updateState(0, testState, "COL1");
+  bool testPassed = ( 0 == strcmp( testState, "<font color=\"COL1\">OFF</font>"));
+  updateState(299, testState, "COL2");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL2\">OFF</font>"));
+  updateState(301, testState, "COL3");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL3\">bereit</font>"));
+  updateState(1024, testState, "COL4");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL4\">bereit</font>"));
+  updateState(-1, testState, "COL5");
+  testPassed &= ( 0 == strcmp( testState, "<font color=\"COL5\">OFF</font>"));
+
+  Serial.println(testPassed ? "PASSED" : "FAILED");
+  return testPassed;
+}
+
+bool testUpdateCounter()
+{
+  Serial.print("Running testUpdateCounter...");
+
+  int testCounter[]={ -100, 0, 1, 100};
+  digitalWrite(D13, HIGH);
+  
+  updateCounter(testCounter[0], D13);
+  bool testPassed = ( -100 == testCounter[0] ) && (HIGH == digitalRead(D13));
+
+  digitalWrite(D13, HIGH);
+  updateCounter(testCounter[1], D13);
+  testPassed &= ( 0 == testCounter[1] ) && (HIGH == digitalRead(D13));
+
+  digitalWrite(D13, HIGH);
+  updateCounter(testCounter[2], D13);
+  testPassed &= ( 0 == testCounter[2] ) && (LOW == digitalRead(D13));
+
+  digitalWrite(D13, HIGH);
+  updateCounter(testCounter[3], D13);
+  testPassed &= ( 99 == testCounter[3] ) && (HIGH == digitalRead(D13));
+
+  Serial.println(testPassed ? "PASSED" : "FAILED");
+  digitalWrite(D13, LOW);
+
+  return testPassed;
+}
+
+
+/*--------------------LICENSE--------------------
+Copyright (c) 2024 Yves Ackermann
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+------------------------------------------------------------*/
